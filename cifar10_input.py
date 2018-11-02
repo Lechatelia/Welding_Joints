@@ -25,7 +25,7 @@ vali_dir='/home/lechatelia/Desktop/Doc/images/' #存放验证数据集的txt路�
 vali_txt_name='valid.txt'
 NUM_TRAIN_BATCH = 1  # 数据集txt个数
 
-test_images_dir = '/home/lechatelia/Desktop/Doc/images/train_images/'
+test_images_dir = '/home/lechatelia/Desktop/Doc/images/valid_images/'
 
 IMG_HEIGHT = 448
 IMG_WIDTH = 336

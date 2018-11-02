@@ -21,12 +21,14 @@ class Test(object):
         self.in_size_h = in_size_h
         self.in_size_w = in_size_w
         self.filenames=[]
+        self.image_label=[]
 
     def read_imges_filenames(self):
         for root, dirs, files in os.walk(self.images_dir):
             for file in files:
                 if file.split('.')[-1]!='txt':
                     self.filenames.append(os.path.join(self.images_dir,file))
+                    self.image_label.append(float(file.split('_')[0]) / 100)
         print(self.filenames)
 
         # cv2.imshow('1',cv2.imread(self.filenames[1]))
@@ -39,13 +41,9 @@ class Test(object):
             i = i + 1
         return test_img
 
-    def test_one_image_show(self,dir):
+    def test_one_image_show(self, dir ):
         '''
-        This function is used to evaluate the test data. Please finish pre-precessing in advance
 
-        :param test_image_array: 4D numpy array with shape [num_test_images, img_height, img_width,
-        img_depth]
-        :return: the softmax probability with shape [num_test_images, num_labels]
         '''
 
 
@@ -54,33 +52,38 @@ class Test(object):
                                                                               IMG_HEIGHT, IMG_WIDTH, IMG_DEPTH])
 
         # Build the test graph
-        logits ,conv0,conv1,conv2,conv3,conv4= inference_return_conv(self.test_image_placeholder, FLAGS.num_residual_blocks, reuse=False,is_traning=False)
-        conv=[conv0,conv1,conv2,conv3,conv4]
+        logits, attention_out = inference(self.test_image_placeholder, FLAGS.num_residual_blocks, reuse=False,is_traning=False,return_conv=True)
         predictions = logits
         saver = tf.train.Saver(tf.global_variables())
         sess = tf.Session()
         saver.restore(sess, FLAGS.test_ckpt_path)
         print('Model restored from ', FLAGS.test_ckpt_path)
-
-        prediction_array = np.array([]).reshape(-1, NUM_CLASS)
-        predict_end = np.array([]).reshape(-1)
         # Test by batches
 
         # test_image = self.generate_image_array(dir)
         test_image = np.zeros((1, self.in_size_h, self.in_size_w, 3), dtype=np.float32)
         test_image[0]= cv2.resize(cv2.cvtColor(cv2.imread(dir), cv2.COLOR_BGR2RGB),
                                  (self.in_size_w, self.in_size_h)) / 256.0
-        batch_prediction,conv_re= sess.run([logits,conv],
+        batch_prediction, attention_out= sess.run([logits, attention_out],
                                           feed_dict={self.test_image_placeholder: test_image})
 
-        for j in range(len(conv_re)):
-            conv0_transpose = sess.run(tf.transpose(conv_re[j], [3, 0, 1, 2]))
-            fig0, ax0 = plt.subplots(nrows=1, ncols=16, figsize=(16, 1))
-            for i in range(16):
-                ax0[i].imshow(conv0_transpose[i][0])  # tensor的切片[row, column]
-            plt.title('Conv_%d_16' %j)
-            plt.savefig('Conv_%d_16' %j)
-            plt.show()
+        attention_out = sess.run(tf.transpose(attention_out,[0,3,1,2]))
+        attention_out = np.squeeze(np.array(attention_out),0)
+        for i in range(attention_out.shape[0]):
+            img = (attention_out[i]*255).astype(np.uint8)
+            # cv2.imshow('channel{i}'.format(i=i),img)
+            # cv2.waitKey(10)
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+            img = cv2.resize(img, (IMG_WIDTH, IMG_HEIGHT))
+            cv2.imwrite("/home/lechatelia/Desktop/Codes/welding_joints_log/attention_img/channel{i}.jpg".format(i=i),img)
+        # for j in range(len(conv_re)):
+        #     conv0_transpose = sess.run(tf.transpose(conv_re[j], [3, 0, 1, 2]))
+        #     fig0, ax0 = plt.subplots(nrows=1, ncols=16, figsize=(16, 1))
+        #     for i in range(16):
+        #         ax0[i].imshow(conv0_transpose[i][0])  # tensor的切片[row, column]
+        #     plt.title('Conv_%d_16' %j)
+        #     plt.savefig('Conv_%d_16' %j)
+        #     plt.show()
         # return prediction_array  # ,predict_end
 
 
@@ -127,14 +130,9 @@ class Test(object):
             if step % 10 == 0:
                 print('%i batches finished!' % step)
             offset = step * FLAGS.test_batch_size
-            test_image_batch = test_image_array[offset:offset + FLAGS.test_batch_size, ...]
+            test_image_batch = test_image_array[offset:offset + FLAGS.test_batch_size]
+            # test_image_batch = test_image_array[offset:offset + FLAGS.test_batch_size, ...]
             test_image = self.generate_image_array(test_image_batch)
-            # i=0
-            # while i<FLAGS.test_batch_size:
-            #     cv2.imshow(str(i), cv2.imread(test_image_batch[i]))
-            #     # cv2.imshow('i',test_image_batch[1])
-            #     cv2.waitKey()
-            #     i=i+1
 
             batch_prediction_array = sess.run([logits],
                                               feed_dict={self.test_image_placeholder: test_image})[0]
@@ -190,15 +188,41 @@ class Test(object):
         out_file = open(path + 'predictions.txt', 'w')
         return out_file
 
+    def compound(self, imgdir, maskdir):
+        img = cv2.imread(imgdir)
+        img = cv2.resize(img, (IMG_WIDTH,IMG_HEIGHT))
+        cv2.imwrite("originimage.jpg",img)
+        cv2.imshow("origin",img)
+        cv2.waitKey(10)
+        mask = cv2.imread(maskdir)
+        mask = cv2.cvtColor(mask,cv2.COLOR_BGR2GRAY)
+        mask = cv2.bitwise_not(mask)
+        mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+        cv2.imwrite("attention.jpg", mask)
+        # mask = cv2.threshold(mask,110,255,cv2.CV_THRESH_BINARY)
+        cv2.imshow("a",mask)
+        cv2.waitKey(10)
+        cv2.addWeighted(img,0.2,mask,0.8,0,mask)
+        cv2.imwrite("attentionresult.jpg",mask)
+        cv2.imshow('hunh',mask)
+        cv2.waitKey(0)
+
+
 
 
 if __name__ == '__main__':
     test=Test(cifar10_input.test_images_dir,IMG_HEIGHT,IMG_WIDTH)
-
-    test.read_imges_filenames()
-    # prediction_array,predict_end=test.test_predict(np.array(test.filenames),write_txt=True)
-    prediction_array=test.test_predict(np.array(test.filenames),write_txt=True)
-    print(prediction_array)
+    Mode = 1
+    if Mode==0:
+        test.read_imges_filenames()
+        # prediction_array,predict_end=test.test_predict(np.array(test.filenames),write_txt=True)
+        prediction_array=test.test_predict(np.array(test.filenames),write_txt=True)
+        labels=np.array(test.image_label)
+        error = np.mean(np.abs(np.squeeze(prediction_array,-1)-labels),axis=0)
+        print(prediction_array)
+        print("pridict error is {error}".format(error=error))
     # print(predict_end)
-
-    # test.test_one_image_show('123.jpg')
+    elif Mode == 1:
+        test.test_one_image_show('1234.jpg')
+    elif Mode == 2:
+        test.compound("1234.jpg","channel124.jpg")

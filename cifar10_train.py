@@ -302,8 +302,8 @@ class Train(object):
         labels = tf.cast(labels, tf.float32)
         # loss_sum = tf.where(tf.greater(tf.abs((logits - labels), "abs"), 0.1), tf.abs(logits - labels),
         #                     tf.abs(logits - labels), name='loss_per_batch')
-        # loss_sum = tf.where(tf.greater(tf.abs((logits - labels), "abs"), 0.1), tf.abs(logits - labels)*10-3/4,
-        #                     tf.pow(tf.abs(logits - labels)*10,4)/4, name='loss_per_batch')
+        # loss_sum = tf.where(tf.greater(tf.abs((logits - labels), "abs"), 0.1), tf.abs(logits - labels)*10-1/2,
+        #                     tf.pow(tf.abs(logits - labels)*10, 2)/2, name='loss_per_batch')
 
         # loss_sum=tf.nn.l1_loss(logits-labels,'l2-loss')
         loss_sum = tf.abs(logits - labels) * 10
@@ -522,7 +522,7 @@ class Train(object):
 
 
         min_learning_rate = tf.constant(0.001, name='y', dtype=tf.float32)
-        learning_rate = tf.train.exponential_decay(0.01, global_step, 100, 0.99, staircase=True)
+        learning_rate = tf.train.exponential_decay(0.01, global_step, 100, 0.9, staircase=True)
         learning_rate = tf.where(tf.greater(learning_rate,min_learning_rate),learning_rate,min_learning_rate)
         opt = tf.train.GradientDescentOptimizer(learning_rate)
         tf.summary.scalar('learning_rate_1', learning_rate)

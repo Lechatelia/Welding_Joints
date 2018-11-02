@@ -162,7 +162,7 @@ def residual_block(input_layer, output_channel, is_traning,first_block=False):
     return output
 
 
-def inference(input_tensor_batch, n, reuse, is_traning):
+def inference(input_tensor_batch, n, reuse, is_traning,return_conv=False):
     '''
     The main function that defines the ResNet. total layers = 1 + 2n + 2n + 2n +1 = 6n + 2
     :param input_tensor_batch: 4D tensor
@@ -179,7 +179,7 @@ def inference(input_tensor_batch, n, reuse, is_traning):
     with tf.variable_scope('conv0', reuse=reuse):
         conv0 = conv_bn_relu_layer(input_tensor_batch, [7, 7, 3, filter_depth], 1, is_traning=is_traning)
         conv0 = tf.nn.max_pool(conv0, [1, 3, 3, 1], [1, 2, 2, 1], padding='SAME')
-        activation_summary(conv0)
+        # activation_summary(conv0)
         layers.append(conv0)
     # [-1,w/2,h/2,features=16]
     for i in range(stage[0]):
@@ -188,13 +188,13 @@ def inference(input_tensor_batch, n, reuse, is_traning):
                 conv1 = residual_block(layers[-1], filter_depth, first_block=True, is_traning=is_traning)
             else:
                 conv1 = residual_block(layers[-1], filter_depth, is_traning=is_traning)
-            activation_summary(conv1)
+            # activation_summary(conv1)
             layers.append(conv1)
     # [-1,w/2,h/2,features]
     for i in range(stage[1]):
         with tf.variable_scope('conv2_%d' % i, reuse=reuse):
             conv2 = residual_block(layers[-1], filter_depth * 2, is_traning=is_traning)
-            activation_summary(conv2)
+            # activation_summary(conv2)
             layers.append(conv2)
     # [-1,w/4,h/4,features*2]
     for i in range(stage[2]):
@@ -209,10 +209,16 @@ def inference(input_tensor_batch, n, reuse, is_traning):
             conv4 = residual_block(layers[-1], filter_depth * 8, is_traning=is_traning)
             layers.append(conv4)
         assert conv4.get_shape().as_list()[1:] == [cifar10_input.IMG_HEIGHT / 16, cifar10_input.IMG_WIDTH / 16,
+
                                                    filter_depth * 8]
     # [-1,w/16,h/16,features*8]
 
     # four stage 每个stage里面有n个stage
+
+    with tf.variable_scope('attention', reuse=reuse):
+        attention_out=attention(conv0,output_channel=filter_depth * 8,is_traning=is_traning)
+        attention_layer=tf.multiply(layers[-1],attention_out+1,name='attention_mul')
+        layers.append(attention_layer)
 
     with tf.variable_scope('fc', reuse=reuse):
         in_channel = layers[-1].get_shape().as_list()[-1]
@@ -229,8 +235,36 @@ def inference(input_tensor_batch, n, reuse, is_traning):
         output1 = output_layer(global_pool, cifar10_input.NUM_CLASS)  # fc [-1 ,10] 10为类别
         output = tf.nn.sigmoid(output1)
         layers.append(output)
+    if not return_conv:
+        return layers[-1]
+    else:
+        return layers[-1], attention_out
 
-    return layers[-1]
+def attention(input_layer, output_channel,is_traning):
+    input_channel = input_layer.get_shape().as_list()[-1]
+    stride=output_channel/(2*input_channel)
+    with tf.variable_scope('attention_branch'):
+        with tf.variable_scope('attention_con1'):
+            conv1 = bn_relu_conv_layer(input_layer, [5, 5, input_channel , input_channel * 2], stride=1,is_traning=is_traning)
+            conv1 = tf.nn.max_pool(conv1,[1, 3, 3, 1], [1, 2, 2, 1], padding='SAME')
+        with tf.variable_scope('attention_conv2'):
+            conv2 = bn_relu_conv_layer(conv1,[5,5,input_channel*2,input_channel*4],stride=1,is_traning=is_traning)
+            conv2 = tf.nn.max_pool(conv2, [1, 3, 3, 1], [1, 2, 2, 1], padding='SAME')
+        with tf.variable_scope('attention_conv3'):
+            pooled_conv = bn_relu_conv_layer(conv2,[5,5,input_channel*4,input_channel*8],stride=1,is_traning=is_traning)
+            pooled_conv = tf.nn.max_pool(pooled_conv, [1, 3, 3, 1], [1, 2, 2, 1], padding='SAME')
+
+        with tf.variable_scope('attention_sigmod'):
+            # height = pooled_conv.get_shape().as_list()[1]
+            # pooled_conv = batch_normalization_layer(pooled_conv, None, is_traning=is_traning)
+            # pooled_conv = tf.reshape(pooled_conv,[pooled_conv.get_shape().as_list()[0], -1, pooled_conv.get_shape().as_list()[-1]])
+            pooled_conv = tf.nn.sigmoid(pooled_conv,  name='sigmod')
+            # pooled_conv = tf.reshape(pooled_conv,
+            #                          [pooled_conv.get_shape().as_list()[0], height,
+            #                           int(pooled_conv.get_shape().as_list()[1] / height),
+            #                           pooled_conv.get_shape().as_list()[-1]])
+
+    return pooled_conv
 
 
 def inference_return_conv(input_tensor_batch, n, reuse,is_traning):
